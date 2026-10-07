@@ -1,0 +1,18 @@
+model,backbone,graph_supervision,notes,mIoU_ms_cxr_bep,source
+AFLoc (released checkpoint),"ResNet-50, 299 px",none,,0.3232,re-scored
+"RAD-DINO, ClinicalBERT frozen","RAD-DINO frozen, 518 px",none,"lr 5e-5, seed 1, 40 epochs",0.334,re-scored
+"RAD-DINO, ClinicalBERT trainable (23 epochs)","RAD-DINO frozen, 518 px",none,"KAF-Ground recipe, graph branch off, earlier epoch",0.334,re-scored
+RAD-DINO control (no L_SG),"RAD-DINO frozen, 518 px",none,KAF-Ground recipe with the graph branch off (configs/ablations/raddino_control.yaml); per-sample results in results/*/persample/raddino-control_*,0.335,"re-scored, with CIs"
+"KAF-Ground, earlier checkpoint (16 epochs)","RAD-DINO frozen, 518 px","L_SG on deep head, sigma 1, 4 GAT heads",same recipe,0.338,re-scored
+KAF-Ground (reported model),"RAD-DINO frozen, 518 px","L_SG on deep head, sigma 1, 4 GAT heads",configs/kaf_ground.yaml,0.3379,"re-scored, with CIs"
+Fusion gate able to open,"RAD-DINO frozen, 518 px","L_SG on deep head, sigma 3, 8 GAT heads, fusion_init xavier",configs/ablations/fusion_gate_open.yaml,0.326,re-scored
+L_SG on the shallow head (the one read at inference),"RAD-DINO frozen, 518 px","L_SG on shallow head, sigma 1, 8 GAT heads, fusion_init xavier",configs/ablations/lsg_shallow_head.yaml,0.279,re-scored
+"AFLoc + GAT dual-stream, trained end to end",ResNet-50,GAT fusion into the text stream,earlier code base; checkpoint not retained,0.298,as reported at the time (no per-sample data)
+"AFLoc + GAT dual-stream, frozen encoders and slow lr",ResNet-50,GAT fusion into the text stream,earlier code base; checkpoint not retained,0.317,as reported at the time (no per-sample data)
+"AFLoc + GAT + L_SG, CNN frozen, sigma 5",ResNet-50,L_SG,earlier code base; checkpoint not retained,0.324,as reported at the time (no per-sample data)
+"AFLoc + GAT + L_SG, CNN and BERT trainable",ResNet-50,L_SG,earlier code base; checkpoint not retained,0.321,as reported at the time (no per-sample data)
+"AFLoc + GAT + L_SG, CNN and BERT frozen",ResNet-50,L_SG,earlier code base; checkpoint not retained,0.321,as reported at the time (no per-sample data)
+AFLoc + raw and KG-rewritten report sentences,ResNet-50,KG-rewritten sentences,earlier code base; checkpoint not retained,0.322,as reported at the time (no per-sample data)
+"AFLoc + KG-rewritten sentences only, with negation",ResNet-50,KG-rewritten sentences,earlier code base; checkpoint not retained,0.322,as reported at the time (no per-sample data)
+AFLoc + injected entity definitions (inference only),ResNet-50,entity definitions,earlier code base,0.33,as reported at the time (no per-sample data)
+"AFLoc + definition loss (AFLoc-KG, best epoch 0)",ResNet-50,definition contrastive loss,earlier code base; checkpoint not retained,0.331,as reported at the time (no per-sample data)

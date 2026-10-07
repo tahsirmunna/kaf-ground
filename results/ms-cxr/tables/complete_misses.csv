@@ -1,0 +1,10 @@
+category,n,afloc_misses,kaf_ground_misses,recovered,lost,mcnemar_p
+Atelectasis,61,1,1,0,0,
+Cardiomegaly,333,0,0,0,0,
+Consolidation,117,1,0,1,0,
+Edema,46,0,0,0,0,
+Lung Opacity,82,0,0,0,0,
+Pleural Effusion,96,0,0,0,0,
+Pneumonia,182,2,2,1,1,
+Pneumothorax,245,59,2,57,0,
+all,1162,63,5,59,1,1.0581813203458523e-16

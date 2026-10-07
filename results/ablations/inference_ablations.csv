@@ -1,0 +1,17 @@
+variant,family,checkpoint,mIoU,delta,ci_95,verdict,dump_heatmaps_options
+Deep head (l2),read-out head,KAF-Ground,0.328,-0.0094,"[-0.0124, -0.0063]","significant, harmful",--head l2
+Mean of both heads (lf),read-out head,KAF-Ground,0.340,+0.0025,"[+0.0003, +0.0047]",significant,--head lf
+RadGraph tokens: mean over anatomy+finding words,token selection,KAF-Ground,0.334,-0.0042,"[-0.0064, -0.0023]","significant, harmful",--tokens rg-mean --role-lexicon <roles.json>
+RadGraph tokens: anatomy words only,token selection,KAF-Ground,0.334,-0.0042,"[-0.0061, -0.0024]","significant, harmful",--tokens rg-anat --role-lexicon <roles.json>
+RadGraph tokens: max over anatomy+finding words,token selection,KAF-Ground,0.338,-0.0004,"[-0.0012, +0.0004]",n.s.,--tokens rg-mask --role-lexicon <roles.json>
+RQP (pruned + original + template; the paper's setting),query pruning,KAF-Ground,0.344,+0.0057,"[+0.0044, +0.0070]",significant,--rqp on
+RQP + mean of both heads,query pruning,KAF-Ground,0.344,+0.0058,"[+0.0036, +0.0080]",significant,--rqp on --head lf
+RQP pruned phrase only,query pruning,KAF-Ground,0.340,+0.0023,"[+0.0006, +0.0039]",significant,--query-mode rg-core
+Hand-written qualifier list (ensemble),query pruning,KAF-Ground,0.342,+0.0036,"[+0.0025, +0.0048]",significant,--query-mode ens
+Hand-written qualifier list (ensemble) + mean of both heads,query pruning,KAF-Ground,0.343,+0.0055,"[+0.0032, +0.0077]",significant,--query-mode ens --head lf
+Hand-written qualifier list (pruned only),query pruning,KAF-Ground,0.339,+0.0010,"[-0.0003, +0.0025]",n.s.,--query-mode core
+TTA horizontal flip,test-time augmentation,KAF-Ground,0.316,-0.0219,"[-0.0240, -0.0197]","significant, harmful","--views id@518,hflip@518"
+TTA multi-scale (448/518/616),test-time augmentation,KAF-Ground,0.338,+0.0006,"[+0.0001, +0.0010]",significant,"--views id@448,id@518,id@616"
+TTA flip + multi-scale,test-time augmentation,KAF-Ground,0.317,-0.0210,"[-0.0232, -0.0187]","significant, harmful","--views id@448,id@518,id@616,hflip@448,hflip@518,hflip@616"
+Deep head (l2),read-out head,fusion-gate variant,0.331,+0.0055,"[+0.0024, +0.0085]",significant,--head l2
+Mean of both heads (lf),read-out head,fusion-gate variant,0.338,+0.0122,"[+0.0098, +0.0147]",significant,--head lf

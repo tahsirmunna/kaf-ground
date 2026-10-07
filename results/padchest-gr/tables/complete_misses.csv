@@ -1,0 +1,10 @@
+category,n,afloc_misses,kaf_ground_misses,recovered,lost,mcnemar_p
+alveolar pattern,39,0,0,0,0,
+aortic elongation,107,0,0,0,0,
+atelectasis,48,0,0,0,0,
+cardiomegaly,99,1,0,1,0,
+interstitial pattern,33,0,0,0,0,
+nodule,75,11,4,10,3,
+pleural effusion,87,1,1,0,0,
+pleural thickening,42,17,0,17,0,
+all,530,30,5,28,3,4.649162292480469e-06

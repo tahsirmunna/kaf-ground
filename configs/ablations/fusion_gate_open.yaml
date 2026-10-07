@@ -1,0 +1,109 @@
+# Ablation: gated fusion able to open (W randomly initialised), sigma = 3, 8 GAT heads.
+# These are the settings of the reported checkpoint. Paths are placeholders;
+# MIMIC-CXR image/csv locations are read from KAF_MIMIC_IMG_DIR / KAF_MIMIC_CSV.
+phase: pretrain
+experiment_name: fusion_gate_open
+output_root: ./runs          # checkpoints and logs go under here
+monitor_mscxr: true          # print a quick MS-CXR IoU each epoch (monitoring only)
+
+model:
+  norm: false
+  vision:
+    model_name: rad_dino
+    hf_name: microsoft/rad-dino
+    out_dim: 768
+    # The RAD-DINO backbone is frozen (its forward runs under no_grad);
+    # only the three projection heads are trained.
+    freeze_cnn: true
+    cnn_unfreeze_epoch: 999
+    cnn_lr: 2.0e-06
+  text:
+    bert_type: emilyalsentzer/Bio_ClinicalBERT
+    embedding_dim: 768
+    freeze_bert: false         # ClinicalBERT is fine-tuned
+    freeze_bert_layers: 0
+    use_text_proj_head: true
+    text_proj_hidden: 512
+    last_n_layers: 4
+    aggregate_method: sum
+    norm: false
+    agg_tokens: true
+    take_sent_as_units: true
+  afloc:
+    temp1: 4.0
+    temp2: 5.0
+    temp3: 10.0
+    use_global_report_loss: true     # L_GR
+    global_report_loss_weight: 1.0
+    use_local_sent_loss: true        # L_DS
+    local_sent_loss_weight: 1.0
+    use_local_word_loss: true        # L_SW
+    local_word_loss_weight: 1.0
+    graph_loss_weight: 3.0           # sigma, weight of L_SG
+    graph_loss_target: l2            # L_SG on the deep patch head
+
+knowledge_injection:
+  enabled: true
+  source: radgraph
+  max_nodes: 64                      # entities kept per report
+  gat_heads: 8
+  fusion_init: xavier                # the gate can open
+
+data:
+  dataset:
+  - mimic
+  view: Frontal
+  missing_value_mode: 0
+  radgraph_path: data/radgraph/MIMIC-CXR_graphs.json   # RadGraph (PhysioNet) parses of MIMIC-CXR
+  text:
+    word_num: 97
+    captions_per_image: 8
+    full_report: true
+    random_combine: true
+    random_combine_mode: 1
+    random_num: true
+  image:
+    imsize: 518                      # 37 x 37 patch grid
+
+transforms:
+  norm: rad_dino
+  center_crop: null
+  random_crop: null
+
+train:
+  seeds:
+  - 23
+  # Released AFLoc checkpoint; only its text encoder is loaded (load_ckpt_mode).
+  load_ckpt: checkpoints/afloc_pretrained_cxr.ckpt
+  load_ckpt_mode: text_only
+  batch_size: 128
+  per_gpu_batchsize: 64             # 2 GPUs x 64 under DDP
+  num_workers: 8
+  optimizer:
+    name: Adam
+    weight_decay: 1.0e-06
+  scheduler:
+    name: step
+    step_size: 5
+    gamma: 0.5
+    monitor: val_loss
+    interval: epoch
+    frequency: 1
+
+lightning:
+  trainer:
+    gpus: 0,1
+    accelerator: ddp
+    num_nodes: 1
+    lr: 2.0e-05
+    max_epochs: 50
+    precision: 16
+  logger:
+    logger_type: CSVLogger
+    save_dir: ./runs/logs
+  checkpoint_callback:
+    monitor: val_loss                # MIMIC-CXR validation loss
+    mode: min
+    save_top_k: 2
+    save_last: true
+    filename: '{epoch}-{val_loss:.4f}'
