@@ -5,6 +5,7 @@ Official code, results, and ablations for **Knowledge Graph-Guided Annotation-Fr
 > Anonymous repository for double-blind review.
 
 ![pipeline](figures/fig_pipeline.png)
+![xray-ground](figures/fig_combined_xrays.png)
 
 ## Overview
 
