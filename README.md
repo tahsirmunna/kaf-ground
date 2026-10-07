@@ -1,98 +1,139 @@
 # KAF-Ground
 
-Code, results and ablations for **KAF-Ground: annotation-free region retrieval in
-chest X-rays with knowledge-graph semantics**.
+Official code, results, and ablations for **Knowledge Graph-Guided Annotation-Free Phrase Grounding in Chest X-Ray Images** (KAF-Ground).
 
-KAF-Ground grounds a clinical phrase (*"small left pleural effusion"*) in a chest
-X-ray without any box, mask or class label at training time. It builds on AFLoc
-and changes three things:
-
-1. **Fine-grained visual features.** AFLoc's ResNet-50 is replaced by a frozen
-   RAD-DINO ViT-B/14, giving a 37 x 37 patch grid at 518 px.
-2. **Knowledge-graph supervision.** RadGraph parses of the training reports pass
-   through a 2-layer GAT, and a graph-supervised loss L_SG aligns entity nodes
-   with image patches, next to AFLoc's report, sentence and word losses:
-   `L = L_GR + L_DS + L_SW + sigma * L_SG` (sigma = 1).
-3. **Two training-free inference rules.**
-   *RadGraph Query Pruning (RQP)* drops qualifiers with no spatial meaning
-   (*small*, *mild*, ...) using a lexicon derived once from RadGraph, and averages
-   the maps of the original, pruned and templated query.
-   *Dynamic Heatmap Sharpening (DHS)* sets each map's operating point from its
-   own intensity distribution (a sigmoid around the (1 - q) quantile, where q is
-   the fraction of pixels above mean + std).
+> Anonymous repository for double-blind review.
 
 ![pipeline](figures/fig_pipeline.png)
 
+## Overview
+
+Annotation-free phrase grounding localizes the image region described by a clinical phrase (e.g., *"small left pleural effusion"*) in a chest X-ray, using only paired images and radiology reports at training time. No boxes, masks, or class labels are used.
+
+Existing annotation-free vision-language models have two limitations: (i) coarse spatial grids blur the boundaries between neighbouring anatomical regions, and (ii) models struggle to separate localizing content (findings and anatomical locations) from descriptive modifiers (severity, size, progression).
+
+KAF-Ground builds on [AFLoc](https://doi.org/10.1038/s41551-025-01574-7) and addresses both:
+
+1. **Dense visual features.** AFLoc's ResNet-50 is replaced by a frozen, chest X-ray-pretrained RAD-DINO (ViT-B/14), producing a dense 37 × 37 patch grid from a 518 × 518 image.
+2. **Knowledge-graph alignment.** RadGraph parses of the training reports are encoded by a two-layer Graph Attention Network (GAT) over Bio_ClinicalBERT embeddings. A subgraph alignment loss `L_SG` (InfoNCE) aligns entity nodes with image patches, without region-level labels. Together with the AFLoc losses:
+
+   `L = L_GR + L_DS + L_SW + L_SG`
+
+3. **Two training-free inference refinements.**
+   - **RadGraph Query Pruning (RQP):** removes non-localizing modifiers (e.g., *small*, *mild*) from the query using a lexicon built from MIMIC-CXR training reports (all MS-CXR studies excluded), e.g., "small left pleural effusion" becomes "left pleural effusion".
+   - **Dynamic Heatmap Sharpening (DHS):** suppresses background with a steep sigmoid centred at `b = mean(u) + std(u)`, computed from each heatmap alone. It uses no ground truth, is a monotonic transform (peak locations and P@1 are unchanged), and its parameters are fixed across all models and benchmarks.
+
 ## Main results
 
-Category-weighted mIoU, 95% paired-bootstrap intervals. BEP = the model alone,
-neither inference rule.
+Performance under the AFLoc Evaluation Protocol (AEP), i.e., **without** inference refinements. 95% paired-bootstrap confidence intervals (1,000 replicates).
 
-| | MS-CXR (1,162 pairs) | PadChest-GR (530 pairs, zero-shot) |
+**MS-CXR (1,162 image-phrase pairs)**
+
+| Model | mIoU | Dice | CNR | P@1 |
+|---|---|---|---|---|
+| MedKLIP | 0.187 | 0.294 | 0.952 | 0.412 |
+| GLoRIA | 0.242 | 0.364 | 1.280 | 0.656 |
+| AFLoc | 0.323 | 0.461 | 1.631 | 0.784 |
+| **KAF-Ground** | **0.338** | **0.482** | **1.672** | **0.819** |
+
+**PadChest-GR (530 pairs, zero-shot transfer)**
+
+| Model | mIoU | Dice | CNR | P@1 |
+|---|---|---|---|---|
+| MedKLIP | 0.185 | 0.276 | 0.828 | 0.392 |
+| GLoRIA | 0.208 | 0.311 | 1.220 | 0.556 |
+| AFLoc | 0.274 | 0.389 | 1.412 | 0.624 |
+| **KAF-Ground** | **0.289** | **0.418** | **1.572** | **0.766** |
+
+**With inference refinements (mIoU)**
+
+| | MS-CXR | PadChest-GR |
 |---|---|---|
-| MedKLIP | 0.1871 [0.179, 0.194] | 0.1847 [0.175, 0.195] |
-| GLoRIA | 0.2424 [0.232, 0.252] | 0.2080 [0.196, 0.222] |
-| AFLoc | 0.3232 [0.314, 0.332] | 0.2738 [0.260, 0.288] |
-| KAF-Ground, BEP | 0.3379 [0.329, 0.347] | 0.2894 [0.276, 0.303] |
-| KAF-Ground + RQP + DHS | **0.3672** [0.357, 0.377] | **0.3082** [0.294, 0.324] |
+| KAF-Ground (AEP) | 0.338 | 0.289 |
+| + RQP | +1.7% | +0.5% |
+| + DHS | +7.6% | +4.8% |
+| + RQP + DHS | **0.367** (+8.7%) | **0.308** (+6.5%) |
 
-Full tables (Dice, CNR, pointing game, every model at every stage, per finding
-type, complete failures) are in [`results/ms-cxr/summary.md`](results/ms-cxr/summary.md)
-and [`results/padchest-gr/summary.md`](results/padchest-gr/summary.md); all
-ablations are in [`results/ablations/`](results/ablations/README.md).
+### Ablation (MS-CXR, mIoU)
 
-## Repository layout
+| Visual backbone | `L_SG` | mIoU |
+|---|---|---|
+| ResNet-50 (AFLoc) | no | 0.323 |
+| ResNet-50 | yes | 0.330 |
+| RAD-DINO | no | 0.332 |
+| RAD-DINO | yes | 0.338 |
+
+`L_SG` contributes a consistent gain of about +0.006 mIoU on both backbones.
+
+### Failure recovery (AFLoc IoU = 0)
+
+| Benchmark | AFLoc failures | Recovered | New failures | Remaining | McNemar p |
+|---|---|---|---|---|---|
+| MS-CXR | 63 | 59 | 1 | 5 | < 1e-15 |
+| PadChest-GR | 30 | 28 | 3 | 5 | 4.6e-6 |
+
+Per finding on MS-CXR, KAF-Ground achieves the highest IoU on 6 of 8 categories and ties AFLoc on pneumonia. The largest gains are on pneumothorax (+0.055) and edema (+0.031). The exception is cardiomegaly (−0.050).
+
+Complete tables (every model at every stage, per finding type, bootstrap intervals) are in
+[`results/ms-cxr/summary.md`](results/ms-cxr/summary.md),
+[`results/padchest-gr/summary.md`](results/padchest-gr/summary.md), and
+[`results/ablations/`](results/ablations/README.md).
+
+## Repository structure
 
 ```
-afloc/                 training code (AFLoc code base + RAD-DINO encoder + RadGraph GAT / L_SG)
+afloc/                 Training code (AFLoc code base + RAD-DINO encoder + RadGraph GAT and L_SG)
   models/              rad_dino_encoder.py, dual_stream_text.py (GAT), losses.py, afloc_model.py
   knowledge/           radgraph_injector.py (entity graphs), kg_sentence_builder.py (ablation)
   lightning/           training loop
-kafground/             evaluation and inference
+kafground/             Evaluation and inference
   eval/                MS-CXR and PadChest-GR loaders, metrics
   inference/           engine.py (heatmaps), rqp.py + rqp_modifiers.txt, dhs.py
 baselines/             GLoRIA and MedKLIP adapters
 configs/               kaf_ground.yaml, ablations/
 scripts/               dump_heatmaps, score_heatmaps, summarize_results,
                        check_paper_numbers, make_figures, build_rqp_lexicon
-data/                  dataset preparation (no data is distributed)
-results/               per-sample scores, tables, ablations
-figures/               the figures of the paper (pipeline source in figures/source)
+data/                  Dataset preparation (no data is distributed)
+results/               Per-sample scores, tables, ablations
+figures/               Paper figures (pipeline source in figures/source)
 train.py
 ```
 
-## Setup
+## Installation
 
 ```bash
 conda create -n kafground python=3.9 && conda activate kafground
 pip install -r requirements.txt
 ```
 
-Prepare the data as described in [`data/README.md`](data/README.md) and set:
+RAD-DINO (`microsoft/rad-dino`) and Bio_ClinicalBERT (`emilyalsentzer/Bio_ClinicalBERT`) are downloaded automatically from the Hugging Face Hub.
+
+## Data
+
+No data is distributed. Obtain the datasets from their official sources under their respective licenses, prepare them as described in [`data/README.md`](data/README.md), and set:
 
 ```bash
-export KAF_MIMIC_IMG_DIR=...  KAF_MIMIC_CSV=...                 # training
+export KAF_MIMIC_IMG_DIR=...  KAF_MIMIC_CSV=...                 # training (MIMIC-CXR)
 export KAF_MSCXR_JSON=...     KAF_MSCXR_IMG_DIR=...             # MS-CXR
 export KAF_PADCHEST_DIR=...   KAF_PADCHEST_BENCH=...            # PadChest-GR
 ```
 
-RAD-DINO (`microsoft/rad-dino`) and Bio_ClinicalBERT
-(`emilyalsentzer/Bio_ClinicalBERT`) are downloaded from the HuggingFace hub.
+| Dataset | Use |
+|---|---|
+| MIMIC-CXR | Training (frontal image-report pairs, no box annotations) |
+| RadGraph | Entity and relation graphs from the training reports |
+| MS-CXR (1,162 pairs) | Evaluation. Boxes are never used for training or model selection |
+| PadChest-GR (530 pairs) | Zero-shot evaluation (different institution, fully unseen) |
 
 ## Training
 
-KAF-Ground starts from the released AFLoc checkpoint, of which only the text
-encoder is loaded. Set `train.load_ckpt` and `data.radgraph_path` in
-`configs/kaf_ground.yaml`, then
+KAF-Ground is initialized from the released AFLoc checkpoint, from which only the text encoder is loaded. Set `train.load_ckpt` and `data.radgraph_path` in `configs/kaf_ground.yaml`, then run:
 
 ```bash
 python train.py -c configs/kaf_ground.yaml --train --gpus 0,1 --val_check_interval 0.5
 ```
 
-Two GPUs with DDP, 64 images per GPU, Adam (lr 2e-5, StepLR 5 x 0.5), 16-bit,
-seed 23. The RAD-DINO backbone is frozen; ClinicalBERT, its projection head,
-the three image heads and the GAT are trained. Lightning keeps the
-checkpoints with the lowest MIMIC-CXR validation loss.
+Setup: 2 GPUs (DDP), 64 images per GPU, Adam (lr 2e-5, StepLR with step 5 and gamma 0.5), 16-bit precision, seed 23. The RAD-DINO backbone is frozen. Bio_ClinicalBERT, its projection head, the three image heads, and the GAT (2 layers, 4 heads, at most 64 entity nodes per report) are trained. The checkpoints with the lowest MIMIC-CXR validation loss are kept.
 
 ## Evaluation
 
@@ -110,22 +151,13 @@ python scripts/summarize_results.py
 python scripts/check_paper_numbers.py
 ```
 
-`score_heatmaps.py` produces both the DHS-off and DHS-on scores from one dump.
-The AFLoc baseline uses `--model afloc` with the released AFLoc checkpoint;
-GLoRIA and MedKLIP are described in [`baselines/README.md`](baselines/README.md).
-Each heatmap dump of MS-CXR takes about 1.2 GB.
+`score_heatmaps.py` produces both DHS-off and DHS-on scores from a single heatmap dump. The AFLoc baseline uses `--model afloc` with the released AFLoc checkpoint. GLoRIA and MedKLIP are described in [`baselines/README.md`](baselines/README.md). A heatmap dump of MS-CXR requires about 1.2 GB.
 
-Protocol details: heatmaps are smoothed (Gaussian, sigma 1.5), upsampled to
-518 x 518 and scored inside the central 453 x 453 region (AFLoc's margin);
-IoU and Dice are averaged over thresholds 0.1 to 0.5 on the map rescaled to
-[-1, 1]; every reported number is the mean over finding types of the per-type
-mean; intervals come from 1,000 paired bootstrap replicates over image-phrase
-pairs (seed 0).
+**Protocol.** We follow the AFLoc Evaluation Protocol (AEP). Heatmaps are smoothed (Gaussian, sigma 1.5), upsampled to 518 × 518, and scored inside the central 453 × 453 region. mIoU and Dice are averaged over thresholds 0.1 to 0.5 on the map rescaled to [−1, 1]. CNR and pointing accuracy (P@1, whether the peak activation falls inside the ground-truth box) are also reported. All metrics are averaged within each finding category and then across categories. Confidence intervals come from 1,000 paired bootstrap replicates over image-phrase pairs (seed 0). All baselines are re-evaluated under identical settings.
 
 ## Reproducing the paper's numbers without a GPU
 
-The per-sample scores of every model are included, so the tables, the checks
-and the quantitative figures can be rebuilt directly:
+Per-sample scores of all models are included, so the tables, checks, and quantitative figures can be rebuilt directly:
 
 ```bash
 python scripts/summarize_results.py     # results/*/tables, results/*/summary.md
@@ -133,14 +165,21 @@ python scripts/check_paper_numbers.py   # 150/150 checks pass
 python scripts/make_figures.py          # figures/regenerated/ (identical to figures/)
 ```
 
+## Limitations
+
+- Training uses MIMIC-CXR only. Multi-institutional training is future work.
+- Results are weaker on large, diffuse findings such as cardiomegaly, where a fine patch grid offers little benefit.
+- The overall mIoU gain is modest, although consistent across backbones and benchmarks.
+- RQP relies on a lexicon built from MIMIC-CXR reports, which likely explains its smaller gain on PadChest-GR.
+
 ## Checkpoint
 
-The trained KAF-Ground checkpoint (1.7 GB) will be linked here after the review
-period.
+The trained KAF-Ground checkpoint (1.7 GB) will be released after the review period.
+
+## Citation
+
+Citation details will be provided after the review period.
 
 ## Acknowledgements and license
 
-The training code builds on the AFLoc code base and keeps its Apache-2.0
-license (`LICENSE`). We use RAD-DINO, Bio_ClinicalBERT, RadGraph, MS-CXR,
-MIMIC-CXR and PadChest-GR under their respective licenses; GLoRIA and MedKLIP are
-evaluated with their official code and weights.
+The training code builds on the AFLoc code base and keeps its Apache-2.0 license (see `LICENSE`). We use RAD-DINO, Bio_ClinicalBERT, RadGraph, MIMIC-CXR, MS-CXR, and PadChest-GR under their respective licenses. GLoRIA and MedKLIP are evaluated with their official code and weights.
