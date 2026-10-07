@@ -1,0 +1,173 @@
+"""
+Global and word-level alignment losses (L_GR / L_DS / L_SW).
+
+Adapted from https://github.com/mrlibw/ControlGAN via GLoRIA and AFLoc.
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
+
+
+def cosine_similarity(x1, x2, dim=1, eps=1e-8):
+    """Returns cosine similarity between x1 and x2, computed along dim."""
+    w12 = torch.sum(x1 * x2, dim)
+    w1 = torch.norm(x1, 2, dim)
+    w2 = torch.norm(x2, 2, dim)
+    return (w12 / (w1 * w2).clamp(min=eps)).squeeze()
+
+
+def attention_fn(query, context, temp1):
+    """
+    query: batch x ndf x queryL
+    context: batch x ndf x ih x iw (sourceL=ihxiw)
+    mask: batch_size x sourceL
+    """
+    batch_size, queryL = query.size(0), query.size(2)
+    ih, iw = context.size(2), context.size(3)
+    sourceL = ih * iw
+
+    context = context.view(batch_size, -1, sourceL)
+    contextT = torch.transpose(context, 1, 2).contiguous()
+
+    attn = torch.bmm(contextT, query)
+
+    attn = nn.Softmax(dim=-1)(attn)
+    attn = attn * temp1
+    attn = nn.Softmax(dim=-2)(attn)
+
+    weightedContext = torch.bmm(context, attn)
+    attn = attn.transpose(1, 2).contiguous()
+
+    return weightedContext, attn.view(batch_size, -1, ih, iw)
+
+
+def global_loss(cnn_code, rnn_code, eps=1e-8, temp3=10.0, weight_matrix=None):
+    """
+    Global alignment loss
+
+    Inputs:
+        cnn_code (torch.Tensor): image features from CNN, shape: (batch_size, 768)
+        rnn_code (torch.Tensor): text features from RNN, shape: (batch_size, 768)
+        eps (float): epsilon value to avoid division by zero
+        temp3 (float): temperature value
+        weight_matrix (torch.Tensor): weight matrix for loss
+
+    Returns:
+        loss0 (torch.Tensor): image-text global loss
+        loss1 (torch.Tensor): text-image global loss
+        scores0 (torch.Tensor): global similarity scores
+    """
+
+    batch_size = cnn_code.shape[0]
+    labels = Variable(torch.LongTensor(range(batch_size))).to(cnn_code.device)
+
+    if cnn_code.dim() == 2:
+        cnn_code = cnn_code.unsqueeze(0)
+        rnn_code = rnn_code.unsqueeze(0)
+
+    cnn_code_norm = torch.norm(cnn_code, 2, dim=2, keepdim=True)
+    rnn_code_norm = torch.norm(rnn_code, 2, dim=2, keepdim=True)
+
+    scores0 = torch.bmm(cnn_code, rnn_code.transpose(1, 2))
+    norm0 = torch.bmm(cnn_code_norm, rnn_code_norm.transpose(1, 2))
+    scores0 = scores0 / norm0.clamp(min=eps) * temp3
+
+    # --> batch_size x batch_size
+    scores0 = scores0.squeeze()
+
+    scores1 = scores0.transpose(0, 1)
+    if weight_matrix is not None:
+        loss0 = 0
+        loss1 = 0
+        for i in range(batch_size):
+            loss0 += nn.CrossEntropyLoss(weight=weight_matrix[i])(scores0[i].unsqueeze(0), labels[i].unsqueeze(0))
+            loss1 += nn.CrossEntropyLoss(weight=weight_matrix[i])(scores1[i].unsqueeze(0), labels[i].unsqueeze(0))
+        loss0 /= batch_size
+        loss1 /= batch_size
+    else:
+        loss0 = nn.CrossEntropyLoss()(scores0, labels)
+        loss1 = nn.CrossEntropyLoss()(scores1, labels)
+    return loss0, loss1, scores0
+
+
+def local_loss(
+    img_features, words_emb, cap_lens, temp1=4.0, temp2=5.0, temp3=10.0,
+    agg="sum", softmax_one=False, weight_matrix=None,
+):
+    """
+    Local alignment loss
+
+    Inputs:
+        img_features (torch.Tensor): image features from CNN, shape: (batch_size, 768, 19, 19)
+        words_emb (torch.Tensor): text features from RNN, shape: (batch_size, 768, max_length)
+        cap_lens (torch.Tensor): caption lengths, shape: (batch_size,)
+        temp1 (float): temperature value for attention
+        temp2 (float): temperature value for similarity
+        temp3 (float): temperature value for similarity
+        agg (str): aggregation method for similarity
+        softmax_one (bool): whether to apply softmax to similarity
+        weight_matrix (torch.Tensor): per-sample class weights for the loss
+
+    Returns:
+        loss0 (torch.Tensor): image-text local loss
+        loss1 (torch.Tensor): text-image local loss
+        att_maps (list): attention maps for text-image alignment
+    """
+
+    batch_size = img_features.shape[0]
+
+    att_maps = []
+    similarities = []
+    for i in range(words_emb.shape[0]):
+
+        # Get the i-th text description
+        words_num = cap_lens[i]
+        word = words_emb[i, :, :words_num].unsqueeze(0).contiguous()
+        word = word.repeat(batch_size, 1, 1)
+        context = img_features
+
+        weiContext, attn = attention_fn(
+            word, context, temp1
+        )
+
+        att_maps.append(
+            attn[i].unsqueeze(0).contiguous()
+        )  # add attention for curr index
+        word = word.transpose(1, 2).contiguous()
+        weiContext = weiContext.transpose(1, 2).contiguous()
+
+        word = word.view(batch_size * words_num, -1)
+        weiContext = weiContext.view(batch_size * words_num, -1)
+
+        row_sim = cosine_similarity(word, weiContext)
+        row_sim = row_sim.view(batch_size, words_num)
+
+        row_sim.mul_(temp2).exp_()
+
+        if agg == "sum":
+            row_sim = row_sim.sum(dim=1, keepdim=True)
+        else:
+            row_sim = row_sim.mean(dim=1, keepdim=True)
+        row_sim = torch.log(row_sim)
+
+        similarities.append(row_sim)
+
+    similarities = torch.cat(similarities, 1)
+    similarities = similarities * temp3
+    similarities1 = similarities.transpose(0, 1)
+
+    labels = Variable(torch.LongTensor(range(batch_size))).to(similarities.device)
+    if weight_matrix is not None:
+        loss0 = 0
+        loss1 = 0
+        for i in range(batch_size):
+            loss0 += nn.CrossEntropyLoss(weight=weight_matrix[i])(similarities[i].unsqueeze(0), labels[i].unsqueeze(0))
+            loss1 += nn.CrossEntropyLoss(weight=weight_matrix[i])(similarities1[i].unsqueeze(0), labels[i].unsqueeze(0))
+        loss0 /= batch_size
+        loss1 /= batch_size
+    else:
+        loss0 = nn.CrossEntropyLoss()(similarities, labels)
+        loss1 = nn.CrossEntropyLoss()(similarities1, labels)
+    return loss0, loss1, att_maps
