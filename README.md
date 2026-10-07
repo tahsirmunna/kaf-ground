@@ -4,7 +4,8 @@ Official code, results, and ablations for **Knowledge Graph-Guided Annotation-Fr
 
 > Anonymous repository for double-blind review.
 
-![pipeline](figures/fig_pipeline.png)
+![pipeline](figures/fig_pipeline.drawio.png)
+![allresults](figures/fig_overall.png)
 
 ## Overview
 
